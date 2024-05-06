@@ -18,9 +18,25 @@ The goal of the project is to perform end-to-end inertial navigation with deep r
 - [ ] Create and implement an end-to-end inertial navigation algorithm in the simulation
 
 **Real-World Application**
-- [ ] Adapt and apply the algorithm to real-world data
+- [ ] Zero-Shot Implementation
+- [ ] Offline Reinforcement Learning
 
-**Additional Methods**
-- [ ] Research other relevant methods for inertial navigation
-- [ ] Implement and test additional methods as needed
+## Simulation To-Do List
+
+**Gazebo Classic**
+- [ ] Create Different Trajectories for the Husky
+- [ ] Collect Simulation Dataset
+- [ ] Create Reinforcement Learning Framework
+- [ ] Train Online Reinforcement Learning
+
+**Isaac Sim**
+- [ ] Get Isaac ROS to work with Isaac Sim
+- [ ] Implement VSLAM
+- [ ] Create different different trajectories
+- [ ] Collect Simulation Data
+- [ ] Implement Online Reinforcement Learning
+
+
+
+
 
