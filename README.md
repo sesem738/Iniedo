@@ -20,6 +20,9 @@ The goal of the project is to perform end-to-end inertial navigation with deep r
 **Real-World Application**
 - [ ] Zero-Shot Implementation
 - [ ] Offline Reinforcement Learning
+- [ ] Online Reinforcement Learning
+- [ ] Imitation Learning (BC, Dagger,...)
+- [ ] Classic Method (MPC,...)
 
 ## Simulation To-Do List
 
