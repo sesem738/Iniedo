@@ -38,9 +38,9 @@ class GazeboEnv(gym.Env):
         self.imu_buffer = deque([np.zeros(6) for _ in range(360)], maxlen=360)
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,))
         observation_space_dict = {
-            'imu': gym.spaces.Box(low=-math.inf, high=math.inf, shape=(360,6), dtype=np.float32),
+            'imu_buffer': gym.spaces.Box(low=-math.inf, high=math.inf, shape=(360,6), dtype=np.float32),
             'pose_estimate': gym.spaces.Box(low=-math.inf, high=math.inf, shape=(7,), dtype=np.float32),
-            'waypoints': gym.spaces.Box(low=-math.inf, high= math.inf, shape=(3,), dtype=np.float32)
+            'waypoints': gym.spaces.Box(low=-math.inf, high= math.inf, shape=(1,), dtype=np.float32)
         }
         self.observation_space = gym.spaces.Dict(observation_space_dict)
 
@@ -107,7 +107,7 @@ class GazeboEnv(gym.Env):
         self.done = False
         self.imu_data = None
         self.husky_state = None
-        self.current_waypt = 0
+        self.current_waypt_idx = 0
         random_angle = random.uniform(-math.pi, math.pi) # Test -pi to pi
 
         # Reset Husky Position
@@ -137,14 +137,13 @@ class GazeboEnv(gym.Env):
 
         init_pose = self.husky_state
         imu_buffer = np.asarray(list(self.imu_buffer))
-        waypoints = self.waypoints[:3]
+        waypoints = self.waypoints[self.current_waypt_idx]
 
         obs = {
-            "init_pose": init_pose,
             "imu_buffer": imu_buffer,
+            "pose_estimate": init_pose,
             "waypoints": waypoints
         }
-
         return obs
     
     
@@ -153,7 +152,7 @@ class GazeboEnv(gym.Env):
         cmd_vel = Twist()
         cmd_vel.linear.x = action[0]
         cmd_vel.angular.z = action[1]
-        self.cmd_vel_pub(cmd_vel)
+        self.cmd_vel_pub.publish(cmd_vel)
 
         rospy.wait_for_service('/gazebo/unpause_physics')
         try:
@@ -169,28 +168,41 @@ class GazeboEnv(gym.Env):
         except rospy.ServiceException as e:
             print("Pause Physics Failed")
 
-        obs = self._get_obs()
-        rewards = self._compute_rewards()
+        obs = self._get_obs(pose_estimate)
+        rewards = self._compute_rewards(pose_estimate)
+
+        return obs, rewards, self.done, {}
 
 
     def _get_obs(self, pose_estimate):
         imu_buffer = np.asarray(list(self.imu_buffer))
 
-        current_waypoint = self.waypoints[self.current_waypt]
-        distance = np.linalg.norm(np.array(pose_estimate[:2]) - np.array(current_waypoint))
+        waypoints = self.waypoints[self.current_waypt_idx]
+        distance = np.linalg.norm(np.array(pose_estimate[:2]) - np.array(waypoints))
         
+        #TODO: Handle end of waypoint
+        # Proposed approach: Repeat last waypoint twice
         if distance <= self.wp_threshold:
-            if self.current_waypt >= len(self.waypoints):
+            if self.current_waypt_idx >= len(self.waypoints): # - repeats 
                 self.done = True
-            waypoints = self.waypoints[self.current_waypt + 1 : self.current_waypt + 4]
-            self.current_waypt += 1
+            self.current_waypt_idx += 1
+            # waypoints = self.waypoints[self.current_waypt_idx : self.current_waypt + 3]
+            waypoints = self.waypoints[self.current_waypt_idx]
+        
+        obs = {
+            "imu_buffer": imu_buffer,
+            "pose_estimate": pose_estimate,
+            "waypoints": waypoints
+        }
+        return obs
 
-
-
-    def _compute_rewards(self):
-        pass
+    def _compute_rewards(self,pose_estimate):
+        current_waypoint = self.waypoints[self.current_waypt_idx]
+        distance = -np.linalg.norm(np.array(pose_estimate[:2]) - np.array(current_waypoint))
+        return distance
 
 if __name__ == "__main__":
     env = GazeboEnv()
     _ = env.reset()
+    env.step(env.observation_space.sample()['pose_estimate'], env.action_space.sample())
     rospy.spin()
