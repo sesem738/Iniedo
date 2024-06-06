@@ -7,6 +7,7 @@ import math
 import random
 import numpy as np
 import gymnasium as gym
+from collections import deque
 from squaternion import Quaternion
 
 import rospy
@@ -18,8 +19,9 @@ from geometry_msgs.msg import Twist
 
 sys.path.append('/home/sesem/WorldWideWeb/Iniedo/gazebo/src/iniedo')
 
-from utils.waypoints_generator import Waypoint_Generator
+from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState, ModelStates
+from utils.waypoints_generator import Waypoint_Generator
 
 class GazeboEnv(gym.Env):
     """Gazebo Environment That Follow Gym Interfaces"""
@@ -31,7 +33,16 @@ class GazeboEnv(gym.Env):
         self.imu_data = None
         self.waypoints = None
         self.husky_state = None
+        self.wp_threshold = 0.1
         self.way_pt = Waypoint_Generator()
+        self.imu_buffer = deque([np.zeros(6) for _ in range(360)], maxlen=360)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,))
+        observation_space_dict = {
+            'imu': gym.spaces.Box(low=-math.inf, high=math.inf, shape=(360,6), dtype=np.float32),
+            'pose_estimate': gym.spaces.Box(low=-math.inf, high=math.inf, shape=(7,), dtype=np.float32),
+            'waypoints': gym.spaces.Box(low=-math.inf, high= math.inf, shape=(3,), dtype=np.float32)
+        }
+        self.observation_space = gym.spaces.Dict(observation_space_dict)
 
         rospy.init_node('TestidoEnv', anonymous=True)
 
@@ -39,22 +50,21 @@ class GazeboEnv(gym.Env):
         self.pause = rospy.ServiceProxy('/gazebo/pause_physics', Empty)
         self.unpause = rospy.ServiceProxy('/gazebo/unpause_physics', Empty)
         self.reset_world = rospy.ServiceProxy('/gazebo/reset_world', Empty)
+        self.set_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
 
         # ROS Subscribers
         self.raw_imu = rospy.Subscriber('/imu/data', Imu, self.imu_callback)
         self.husky_state_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.state_callback)
         
         # ROS Publishers
-        self.set_state = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=10)
-        self.cmd_vel = rospy.Publisher('/husky_velocity_controller/cmd_vel', Twist, queue_size=1)
+        self.cmd_vel_pub = rospy.Publisher('/husky_velocity_controller/cmd_vel', Twist, queue_size=1)
 
-        # rospy.wait_for_service('/gazebo/pause_physics')
-        # try:
-        #     self.pause()
-        # except rospy.ServiceException as e:
-        #     print("Pause Physics Failed")
-
-        
+        rospy.wait_for_service('/gazebo/pause_physics')
+        try:
+            self.pause()
+        except rospy.ServiceException as e:
+            print("Pause Physics Failed")
+  
         
     def imu_callback(self, imu):
         linear_acceleration = (imu.linear_acceleration.x,
@@ -65,7 +75,8 @@ class GazeboEnv(gym.Env):
                             imu.angular_velocity.y,
                             imu.angular_velocity.z)
         
-        self.imu_data = (linear_acceleration, angular_velocity)
+        self.imu_data = np.asarray([*linear_acceleration, *angular_velocity])
+        self.imu_buffer.append(self.imu_data)
         
 
     def state_callback(self, states):
@@ -80,11 +91,7 @@ class GazeboEnv(gym.Env):
                 states.pose[id].orientation.z
                 )
 
-        quat = Quaternion(*quat)
-
-        euler = quat.to_euler(degrees=True)
-        self.husky_state = [position, quat]
-        self.yaw = euler[2]
+        self.husky_state = np.asarray([*position, *quat])
         
 
     def reset(self):
@@ -97,61 +104,22 @@ class GazeboEnv(gym.Env):
             print("/gazebo/reset_simulation service call failed")
 
         # Reset Variables
+        self.done = False
         self.imu_data = None
         self.husky_state = None
-        random_angle = random.uniform(-3.14159, 3.14159) # Test -pi to pi
-        
-        print("Random Angle: ", math.degrees(random_angle))
+        self.current_waypt = 0
+        random_angle = random.uniform(-math.pi, math.pi) # Test -pi to pi
 
         # Reset Husky Position
         husky_pose = ModelState()
         husky_pose.model_name = 'husky'
-        husky_pose.pose.position.x = round(random.uniform(-1,1)*10, 1) 
-        husky_pose.pose.position.y = round(random.uniform(-1,1)*10, 1) 
-        husky_pose.pose.position.z = 0.0
+        husky_pose.pose.position.x = round(random.uniform(-10,10), 1) 
+        husky_pose.pose.position.y = round(random.uniform(-10,10), 1) 
         husky_pose.pose.orientation.w = math.cos(random_angle / 2)
         husky_pose.pose.orientation.z = math.sin(random_angle / 2)
-        husky_pose.reference_frame = 'world'
-        self.set_state.publish(husky_pose)
+        self.set_state(husky_pose)
 
         self.waypoints = self.way_pt.choose_random_trajectory([husky_pose.pose.position.x, husky_pose.pose.position.y])
-
-        # rospy.wait_for_service('/gazebo/unpause_physics')
-        # try:
-        #     self.unpause()
-        #     print("We are Here")
-        # except rospy.ServiceException as e:
-        #     print("Unpause Physics Failed")
-
-        # time.sleep(0.5)
-
-        # print("Gazebo Yaw: ", self.yaw)
-
-        # while self.imu_data is None or self.husky_state is None:
-        #     print(self.husky_state)
-        #     print("Waiting For Message")
-        
-
-        # rospy.wait_for_service('/gazebo/pause_physics')
-        # try:
-        #     self.pause()
-        #     print("We are Gone")
-        # except rospy.ServiceException as e:
-        #     print("Pause Physics Failed")
-
-        # rospy.wait_for_service('/gazebo/unpause_physics')
-        # try:
-        #     self.unpause()
-        #     print("We are Here")
-        # except rospy.ServiceException as e:
-        #     print("Unpause Physics Failed")
-
-        
-
-        return self.imu_data
-    
-    
-    def step(self, action):
 
         rospy.wait_for_service('/gazebo/unpause_physics')
         try:
@@ -159,10 +127,41 @@ class GazeboEnv(gym.Env):
         except rospy.ServiceException as e:
             print("Unpause Physics Failed")
 
-        while self.imu_data is None or self.husky_state is None:
-            print("Waiting For Message")
-        
-        # TODO: Get_Observations
+        time.sleep(0.05)
+      
+        rospy.wait_for_service('/gazebo/pause_physics')
+        try:
+            self.pause()
+        except rospy.ServiceException as e:
+            print("Pause Physics Failed")
+
+        init_pose = self.husky_state
+        imu_buffer = np.asarray(list(self.imu_buffer))
+        waypoints = self.waypoints[:3]
+
+        obs = {
+            "init_pose": init_pose,
+            "imu_buffer": imu_buffer,
+            "waypoints": waypoints
+        }
+
+        return obs
+    
+    
+    def step(self, pose_estimate, action):
+
+        cmd_vel = Twist()
+        cmd_vel.linear.x = action[0]
+        cmd_vel.angular.z = action[1]
+        self.cmd_vel_pub(cmd_vel)
+
+        rospy.wait_for_service('/gazebo/unpause_physics')
+        try:
+            self.unpause()
+        except rospy.ServiceException as e:
+            print("Unpause Physics Failed")
+
+        time.sleep(0.05)
 
         rospy.wait_for_service('/gazebo/pause_physics')
         try:
@@ -170,14 +169,28 @@ class GazeboEnv(gym.Env):
         except rospy.ServiceException as e:
             print("Pause Physics Failed")
 
+        obs = self._get_obs()
+        rewards = self._compute_rewards()
 
-    def render(self, mode='human'):
-        pass
 
-    def close(self):
+    def _get_obs(self, pose_estimate):
+        imu_buffer = np.asarray(list(self.imu_buffer))
+
+        current_waypoint = self.waypoints[self.current_waypt]
+        distance = np.linalg.norm(np.array(pose_estimate[:2]) - np.array(current_waypoint))
+        
+        if distance <= self.wp_threshold:
+            if self.current_waypt >= len(self.waypoints):
+                self.done = True
+            waypoints = self.waypoints[self.current_waypt + 1 : self.current_waypt + 4]
+            self.current_waypt += 1
+
+
+
+    def _compute_rewards(self):
         pass
 
 if __name__ == "__main__":
     env = GazeboEnv()
-    env.reset()
+    _ = env.reset()
     rospy.spin()

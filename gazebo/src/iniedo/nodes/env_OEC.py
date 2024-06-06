@@ -5,6 +5,7 @@ import math
 import random
 import numpy as np
 import gymnasium as gym
+from collections import deque
 from squaternion import Quaternion
 
 import rospy
