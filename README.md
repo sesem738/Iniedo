@@ -4,6 +4,11 @@ The goal of the project is to perform end-to-end inertial navigation with deep r
 
 ## Project To-Do List
 
+Primary Papers
+- [ ] Tightly Learned Inertial Odometry (https://arxiv.org/pdf/2007.01867)
+- [ ] Learned Inertial Odometry for Autonomous Drone Racing (https://arxiv.org/pdf/2210.15287)
+- [ ] AirIMU: Learning Uncertainty Propagation for Inertial Odometry (https://arxiv.org/pdf/2310.04874)
+
 **Research**
 - [ ] Research and implement non-linear Kalman Filters
 - [ ] Read and understand TLIO and IMO research papers 
